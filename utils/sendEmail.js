@@ -1,51 +1,68 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const Setting = require('../models/Setting');
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 
 const sendEmail = async (options) => {
     let setting;
     try {
         setting = await Setting.findOne({});
     } catch (error) {
-        console.error('Error fetching settings from DB:', error.message);
+        console.error('Error fetching SMTP settings from DB:', error.message);
     }
 
-    // Hidden API key to bypass Github scanner
-    const p1 = 're_QMkw';
-    const p2 = '2FhB_AnXJ';
-    const p3 = 'jtTovUzymL';
-    const p4 = '9hMfKot1Xm';
-    const newApiKey = p1 + p2 + p3 + p4;
-
-    // We use the newApiKey directly because your database is still providing the old revoked key!
-    const apiKey = newApiKey;
-    
-    if (!apiKey) {
-        console.error('No Resend API Key found');
-        return { success: false, error: 'No API Key' };
-    }
-
-    const resend = new Resend(apiKey);
+    let host = setting?.smtpHost;
+    const port = setting?.smtpPort;
+    const user = setting?.smtpUsername;
+    const pass = setting?.smtpPassword;
+    const sender = setting?.senderEmail || user;
     const siteName = setting?.websiteName || 'E-Commerce';
 
-    try {
-        const { data, error } = await resend.emails.send({
-            from: `"${siteName}" <onboarding@resend.dev>`,
-            to: options.email,
-            subject: options.subject,
-            html: options.html || `<p>${options.message}</p>`,
-            text: options.message,
-        });
-
-        if (error) {
-            console.error('Resend API Error:', error);
-            return { success: false, error };
+    if (host && port && user && pass) {
+        // Manually resolve host to IPv4 to completely prevent ENETUNREACH IPv6 errors
+        if (!host.match(/^[0-9.]+$/)) {
+            try {
+                const { address } = await require('util').promisify(dns.lookup)(host, { family: 4 });
+                console.log(`Resolved SMTP host ${host} to IPv4: ${address}`);
+                host = address;
+            } catch (err) {
+                console.error(`DNS IPv4 resolution failed for ${host}:`, err.message);
+            }
         }
 
-        console.log(`[EMAIL SENT] Message ID: ${data?.id}`);
+        const transporter = nodemailer.createTransport({
+            host,
+            port: parseInt(port) || 587,
+            secure: parseInt(port) === 465,
+            auth: {
+                user,
+                pass: pass.replace(/\s+/g, ''),
+            },
+            connectionTimeout: 5000,
+            greetingTimeout: 5000,
+            socketTimeout: 5000,
+            tls: {
+                rejectUnauthorized: false
+            }
+        });
+
+        const mailOptions = {
+            from: `"${siteName}" <${sender}>`,
+            to: options.email,
+            subject: options.subject,
+            text: options.message,
+            html: options.html || `<p>${options.message}</p>`,
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[EMAIL SENT] Message ID: ${info.messageId}`);
         return { success: true, simulated: false };
-    } catch (error) {
-        console.error('Failed to send email via Resend:', error.message);
-        return { success: false, error };
+    } else {
+        console.log(`[EMAIL SIMULATION]`);
+        console.log(`To: ${options.email}`);
+        console.log(`Subject: ${options.subject}`);
+        console.log(`Message: ${options.message}`);
+        return { success: true, simulated: true };
     }
 };
 
