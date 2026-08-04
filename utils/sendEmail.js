@@ -14,10 +14,10 @@ const sendEmail = async (options) => {
     const p2 = '2FhB_AnXJ';
     const p3 = 'jtTovUzymL';
     const p4 = '9hMfKot1Xm';
-    const fallbackKey = p1 + p2 + p3 + p4;
+    const newApiKey = p1 + p2 + p3 + p4;
 
-    // Initialize Resend with your API key from DB, Env, or Fallback
-    const apiKey = process.env.RESEND_API_KEY || setting?.smtpPassword || fallbackKey;
+    // We use the newApiKey directly because your database is still providing the old revoked key!
+    const apiKey = newApiKey;
     
     if (!apiKey) {
         console.error('No Resend API Key found');
