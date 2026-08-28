@@ -326,7 +326,7 @@ const getMyOrders = async (req, res) => {
 // @access  Private/Admin
 const getOrders = async (req, res) => {
     try {
-        const orders = await Order.find({}).populate('user', 'id name').sort({ createdAt: -1 });
+        const orders = await Order.find({}).populate('user', 'id name email phone').sort({ createdAt: -1 });
         res.json(orders);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -473,6 +473,102 @@ const bulkDeleteOrders = async (req, res) => {
     }
 };
 
+// @desc    Export all orders as formatted CSV directly from DB
+// @route   GET /api/orders/export/csv
+// @access  Private/Admin
+const exportOrdersCSV = async (req, res) => {
+    try {
+        const orders = await Order.find({}).populate('user', 'name email phone').sort({ createdAt: -1 });
+        
+        const headers = [
+            'Order ID',
+            'Order Date',
+            'Customer Name',
+            'Customer Email',
+            'Customer Phone',
+            'Shipping Address',
+            'City',
+            'State',
+            'Postal Code',
+            'Payment Method',
+            'Payment Status',
+            'Paid At',
+            'Delivery Status',
+            'Delivered At',
+            'Items Ordered Summary',
+            'Total Items Qty',
+            'Items Subtotal',
+            'Shipping Fee',
+            'Discount Amount',
+            'Grand Total (INR)'
+        ];
+
+        const escapeCSV = (val) => {
+            if (val === null || val === undefined) return '""';
+            const str = String(val).replace(/"/g, '""');
+            return `"${str}"`;
+        };
+
+        const rows = orders.map(order => {
+            const orderId = order.orderNumber ? `#${order.orderNumber}` : `#${order._id.toString().substring(0, 8).toUpperCase()}`;
+            const orderDate = new Date(order.createdAt).toLocaleString('en-IN');
+            const custName = order.user?.name || order.shippingAddress?.name || 'Customer';
+            const custEmail = order.user?.email || 'N/A';
+            const custPhone = order.shippingAddress?.phone || order.user?.phone || 'N/A';
+            const address = order.shippingAddress?.address || 'N/A';
+            const city = order.shippingAddress?.city || 'N/A';
+            const state = order.shippingAddress?.state || 'N/A';
+            const postalCode = order.shippingAddress?.postalCode || 'N/A';
+            const paymentMethod = order.paymentMethod || 'Online';
+            const paymentStatus = order.isPaid ? 'PAID' : 'UNPAID';
+            const paidAt = order.paidAt ? new Date(order.paidAt).toLocaleString('en-IN') : 'N/A';
+            const deliveryStatus = order.status || (order.isDelivered ? 'Delivered' : 'Pending');
+            const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).toLocaleString('en-IN') : 'N/A';
+
+            const itemsStr = order.orderItems?.map(i => `${i.name} (x${i.qty} @ ${i.price})`).join('; ') || 'N/A';
+            const totalQty = order.orderItems?.reduce((acc, i) => acc + (Number(i.qty) || 1), 0) || 0;
+            const itemsPrice = order.itemsPrice || 0;
+            const shippingPrice = order.shippingPrice || 0;
+            const discountPrice = order.discountPrice || 0;
+            const grandTotal = order.totalPrice || 0;
+
+            return [
+                escapeCSV(orderId),
+                escapeCSV(orderDate),
+                escapeCSV(custName),
+                escapeCSV(custEmail),
+                escapeCSV(custPhone),
+                escapeCSV(address),
+                escapeCSV(city),
+                escapeCSV(state),
+                escapeCSV(postalCode),
+                escapeCSV(paymentMethod),
+                escapeCSV(paymentStatus),
+                escapeCSV(paidAt),
+                escapeCSV(deliveryStatus),
+                escapeCSV(deliveredAt),
+                escapeCSV(itemsStr),
+                totalQty,
+                itemsPrice.toFixed(2),
+                shippingPrice.toFixed(2),
+                discountPrice.toFixed(2),
+                grandTotal.toFixed(2)
+            ].join(',');
+        });
+
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const filename = `shahi_store_all_orders_${timestamp}.csv`;
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.status(200).send(csvContent);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = { 
     addOrderItems, 
     getOrderById, 
@@ -483,6 +579,7 @@ module.exports = {
     getOrders,
     deleteOrder,
     bulkDeleteOrders,
+    exportOrdersCSV,
     createRazorpayOrder,
     verifyRazorpayPayment
 };

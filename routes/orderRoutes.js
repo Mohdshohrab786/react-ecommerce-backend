@@ -10,6 +10,7 @@ const {
     getOrders,
     deleteOrder,
     bulkDeleteOrders,
+    exportOrdersCSV,
     createRazorpayOrder,
     verifyRazorpayPayment
 } = require('../controllers/orderController');
@@ -17,6 +18,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 router.route('/').post(protect, addOrderItems).get(protect, admin, getOrders);
 router.route('/bulk-delete').post(protect, admin, bulkDeleteOrders);
+router.route('/export/csv').get(protect, admin, exportOrdersCSV);
 router.route('/myorders').get(protect, getMyOrders);
 router.route('/:id').get(protect, getOrderById).delete(protect, admin, deleteOrder);
 router.route('/:id/pay').put(protect, updateOrderToPaid);
