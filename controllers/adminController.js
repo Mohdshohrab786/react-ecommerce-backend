@@ -1,6 +1,8 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const Coupon = require('../models/Coupon');
+const Setting = require('../models/Setting');
 
 // @desc    Get comprehensive dashboard stats, graphs and metrics
 // @route   GET /api/admin/dashboard
@@ -13,6 +15,8 @@ const getDashboardStats = async (req, res) => {
 
         const orders = await Order.find({}).populate('user', 'name email').sort({ createdAt: -1 });
         const products = await Product.find({});
+        const coupons = await Coupon.find({});
+        const setting = await Setting.findOne({});
         const recentUsers = await User.find({}).sort({ createdAt: -1 }).limit(5).select('name email role createdAt');
 
         // Total Sales Calculation
@@ -104,6 +108,69 @@ const getDashboardStats = async (req, res) => {
             });
         }
 
+        // Day of the Week Performance (Sun to Sat)
+        const daysOrder = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayOfWeekStats = daysOrder.map(dayName => ({ day: dayName, orders: 0, sales: 0 }));
+        orders.forEach(o => {
+            const dayIdx = new Date(o.createdAt).getDay();
+            dayOfWeekStats[dayIdx].orders += 1;
+            if (o.isPaid) dayOfWeekStats[dayIdx].sales += (o.totalPrice || 0);
+        });
+        dayOfWeekStats.forEach(d => {
+            d.sales = Math.round(d.sales * 100) / 100;
+        });
+
+        // Customer Retention & VIP Buyers (LTV)
+        const customerMap = {};
+        orders.forEach(o => {
+            const uid = o.user?._id?.toString() || o.user?.email || o.shippingAddress?.name || 'Guest';
+            if (!customerMap[uid]) {
+                customerMap[uid] = {
+                    name: o.user?.name || o.shippingAddress?.name || 'Customer',
+                    email: o.user?.email || 'N/A',
+                    ordersCount: 0,
+                    totalSpent: 0
+                };
+            }
+            customerMap[uid].ordersCount += 1;
+            if (o.isPaid) {
+                customerMap[uid].totalSpent += (o.totalPrice || 0);
+            }
+        });
+
+        const allBuyers = Object.values(customerMap);
+        const repeatBuyersCount = allBuyers.filter(c => c.ordersCount > 1).length;
+        const repeatCustomerRate = allBuyers.length > 0 ? Math.round((repeatBuyersCount / allBuyers.length) * 100) : 0;
+        const topCustomers = allBuyers.sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 5);
+
+        // Store Funnel & Rates
+        const fulfillmentRate = totalOrders > 0 ? Math.round((statusCounts.delivered / totalOrders) * 100) : 0;
+        const paymentSuccessRate = totalOrders > 0 ? Math.round((paidOrders.length / totalOrders) * 100) : 0;
+        const codOrdersCount = orders.filter(o => o.paymentMethod === 'COD').length;
+        const prepaidOrdersCount = orders.length - codOrdersCount;
+
+        // Ratings & Sentiment Analytics
+        let totalReviewScore = 0;
+        let reviewCount = 0;
+        const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        products.forEach(p => {
+            if (p.reviews && p.reviews.length > 0) {
+                p.reviews.forEach(r => {
+                    reviewCount++;
+                    totalReviewScore += r.rating;
+                    const rounded = Math.min(5, Math.max(1, Math.round(r.rating)));
+                    ratingDistribution[rounded] = (ratingDistribution[rounded] || 0) + 1;
+                });
+            }
+        });
+        const avgRating = reviewCount > 0 
+            ? (totalReviewScore / reviewCount).toFixed(1) 
+            : (products.reduce((acc, p) => acc + (p.rating || 0), 0) / (products.length || 1)).toFixed(1);
+
+        // Promotion & Coupon Stats
+        const totalDiscountGiven = Math.round(orders.reduce((acc, o) => acc + (o.discountAmount || 0), 0) * 100) / 100;
+        const couponOrdersCount = orders.filter(o => o.discountAmount && o.discountAmount > 0).length;
+
         // Category Breakdown
         const categoryMap = {};
         products.forEach(p => {
@@ -146,6 +213,15 @@ const getDashboardStats = async (req, res) => {
         const recentOrders = orders.slice(0, 6);
         const lowStockProducts = products.filter(p => p.countInStock < 10).slice(0, 6);
 
+        // System Health & Gateway
+        const systemHealth = {
+            activeGateway: setting?.activePaymentGateway || 'Razorpay',
+            isCodEnabled: setting?.isCodEnabled !== false,
+            isShippingEnabled: setting?.isShippingEnabled !== false,
+            isOtpLoginEnabled: setting?.isOtpLoginEnabled || false,
+            smtpActive: !!setting?.smtpHost
+        };
+
         res.json({
             totalOrders,
             totalProducts,
@@ -161,11 +237,26 @@ const getDashboardStats = async (req, res) => {
             paymentMethods,
             last7Days,
             last6Months,
+            dayOfWeekStats,
+            repeatCustomerRate,
+            repeatBuyersCount,
+            topCustomers,
+            fulfillmentRate,
+            paymentSuccessRate,
+            codOrdersCount,
+            prepaidOrdersCount,
+            avgRating,
+            reviewCount,
+            ratingDistribution,
+            totalDiscountGiven,
+            couponOrdersCount,
+            activeCouponsCount: coupons.filter(c => c.isActive !== false).length,
             categoryStats,
             topSellingProducts,
             recentOrders,
             lowStockProducts,
-            recentUsers
+            recentUsers,
+            systemHealth
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
