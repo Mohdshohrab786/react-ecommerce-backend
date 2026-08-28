@@ -1,4 +1,5 @@
 const Order = require('../models/Order');
+const Notification = require('../models/Notification');
 const Coupon = require('../models/Coupon');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
@@ -45,6 +46,31 @@ const addOrderItems = async (req, res) => {
             });
 
             const createdOrder = await order.save();
+
+            // Trigger admin notification for new order
+            try {
+                const settings = await Setting.findOne({});
+                const currency = settings?.currency || 'USD';
+                const userName = req.user?.name || 'Customer';
+                const itemsCount = createdOrder.orderItems?.length || 0;
+                const shortId = createdOrder._id.toString().substring(0, 8).toUpperCase();
+
+                await Notification.create({
+                    user: req.user._id,
+                    type: 'new_order',
+                    title: `New Order #${shortId}`,
+                    message: `New order of ${currency} ${createdOrder.totalPrice} (${itemsCount} items) placed by ${userName} via ${createdOrder.paymentMethod}.`,
+                    link: '/admin/orderlist',
+                    meta: { 
+                        orderId: createdOrder._id, 
+                        totalPrice: createdOrder.totalPrice, 
+                        paymentMethod: createdOrder.paymentMethod,
+                        itemsCount 
+                    }
+                });
+            } catch (notiErr) {
+                console.error('Failed to create new_order notification:', notiErr.message);
+            }
 
             // If a coupon was used, increment its usedCount
             if (coupon) {

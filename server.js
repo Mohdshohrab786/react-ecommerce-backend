@@ -18,6 +18,7 @@ const blogRoutes = require('./routes/blogRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const newsletterRoutes = require('./routes/newsletterRoutes');
 const shippingRuleRoutes = require('./routes/shippingRuleRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const path = require('path');
 
 const app = express();
@@ -32,6 +33,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/notifications', notificationRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/brands', brandRoutes);
 app.use('/api/banners', bannerRoutes);

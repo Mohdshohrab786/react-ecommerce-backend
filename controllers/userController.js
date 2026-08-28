@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const generateToken = require('../utils/generateToken');
 const crypto = require('crypto');
 const sendEmail = require('../utils/sendEmail');
@@ -46,6 +47,20 @@ const registerUser = async (req, res) => {
         }
         const user = await User.create({ name, email, password, phone });
         if (user) {
+            // Trigger admin notification for new user registration
+            try {
+                await Notification.create({
+                    user: user._id,
+                    type: 'new_user',
+                    title: 'New Customer Registered',
+                    message: `${user.name || 'New user'} (${user.email || user.phone || 'No email'}) just created an account.`,
+                    link: '/admin/userlist',
+                    meta: { userId: user._id, name: user.name, email: user.email, phone: user.phone }
+                });
+            } catch (notiErr) {
+                console.error('Failed to create new_user notification:', notiErr.message);
+            }
+
             res.status(201).json({
                 _id: user._id,
                 name: user.name,
@@ -238,25 +253,29 @@ const forgotPassword = async (req, res) => {
         
         const resetUrl = `${frontendOrigin}/reset-password/${resetToken}`;
 
+        const setting = await Setting.findOne({});
+        const siteName = setting?.websiteName || 'Shahi Store';
         const message = `You are receiving this email because you (or someone else) has requested the reset of a password. Please click the link below to reset your password: \n\n ${resetUrl}`;
 
         try {
             const emailResult = await sendEmail({
                 email: user.email,
-                subject: 'Password Reset Request',
+                subject: `[${siteName}] Password Reset Request`,
                 message,
                 html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                        <h2 style="color: #333; text-align: center;">Password Reset Request</h2>
-                        <p>Hi ${user.name},</p>
-                        <p>You requested a password reset for your account. Please click the button below to set a new password. This link is valid for 30 minutes.</p>
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #eee; border-radius: 12px; background: #ffffff;">
+                        <h2 style="color: #6366f1; text-align: center; margin-bottom: 5px;">${siteName}</h2>
+                        <h3 style="color: #333; text-align: center; margin-top: 0;">Password Reset Request</h3>
+                        <p>Hi <strong>${user.name || 'Valued Customer'}</strong>,</p>
+                        <p>You requested a password reset for your account on <strong>${siteName}</strong>. Please click the button below to set a new password. This link is valid for 30 minutes.</p>
                         <div style="text-align: center; margin: 30px 0;">
-                            <a href="${resetUrl}" style="background-color: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Reset Password</a>
+                            <a href="${resetUrl}" style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Reset Password</a>
                         </div>
-                        <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
+                        <p style="color: #666; font-size: 13px;">If you did not request this, please ignore this email and your password will remain unchanged.</p>
                         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
                         <p style="font-size: 12px; color: #999; text-align: center;">If the button above doesn't work, copy and paste this URL into your browser:</p>
-                        <p style="font-size: 12px; color: #0066cc; word-break: break-all; text-align: center;">${resetUrl}</p>
+                        <p style="font-size: 12px; color: #6366f1; word-break: break-all; text-align: center;">${resetUrl}</p>
+                        <p style="font-size: 12px; color: #999; text-align: center; margin-top: 20px;">Best regards,<br/>The <strong>${siteName}</strong> Team</p>
                     </div>
                 `
             });
@@ -475,6 +494,20 @@ const verifyRegisterOtp = async (req, res) => {
             user.otp = undefined;
             user.otpExpire = undefined;
             await user.save({ validateBeforeSave: false });
+
+            // Trigger admin notification for new user OTP registration
+            try {
+                await Notification.create({
+                    user: user._id,
+                    type: 'new_user',
+                    title: 'New Customer Registered',
+                    message: `${user.name || 'New user'} (${user.phone || user.email || 'Phone user'}) registered via OTP.`,
+                    link: '/admin/userlist',
+                    meta: { userId: user._id, name: user.name, phone: user.phone, email: user.email }
+                });
+            } catch (notiErr) {
+                console.error('Failed to create new_user OTP notification:', notiErr.message);
+            }
 
             res.status(201).json({
                 _id: user._id,
