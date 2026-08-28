@@ -442,15 +442,14 @@ const verifyRazorpayPayment = async (req, res) => {
 // @access  Private/Admin
 const deleteOrder = async (req, res) => {
     try {
-        const order = await Order.findById(req.params.id);
+        const order = await Order.findByIdAndDelete(req.params.id);
         if (order) {
-            await order.deleteOne();
-            res.json({ message: 'Order removed successfully' });
+            return res.json({ message: 'Order removed successfully' });
         } else {
-            res.status(404).json({ message: 'Order not found' });
+            return res.status(404).json({ message: 'Order not found' });
         }
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
