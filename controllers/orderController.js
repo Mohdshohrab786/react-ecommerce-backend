@@ -437,6 +437,43 @@ const verifyRazorpayPayment = async (req, res) => {
     }
 };
 
+// @desc    Delete single order
+// @route   DELETE /api/orders/:id
+// @access  Private/Admin
+const deleteOrder = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id);
+        if (order) {
+            await order.deleteOne();
+            res.json({ message: 'Order removed successfully' });
+        } else {
+            res.status(404).json({ message: 'Order not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Bulk delete multiple orders
+// @route   POST /api/orders/bulk-delete
+// @access  Private/Admin
+const bulkDeleteOrders = async (req, res) => {
+    try {
+        const { orderIds } = req.body;
+        if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+            return res.status(400).json({ message: 'Please select at least one order to delete.' });
+        }
+
+        const result = await Order.deleteMany({ _id: { $in: orderIds } });
+        res.json({ 
+            message: `${result.deletedCount} order(s) deleted successfully`,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = { 
     addOrderItems, 
     getOrderById, 
@@ -445,6 +482,8 @@ module.exports = {
     updateOrderStatus,
     getMyOrders, 
     getOrders,
+    deleteOrder,
+    bulkDeleteOrders,
     createRazorpayOrder,
     verifyRazorpayPayment
 };
