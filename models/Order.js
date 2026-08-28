@@ -60,7 +60,10 @@ const orderSchema = new mongoose.Schema({
     
     // Coupon applied
     coupon: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon' },
-    discountAmount: { type: Number, default: 0 }
+    discountAmount: { type: Number, default: 0 },
+    
+    // Short readable order ID (e.g. ORD-109283)
+    orderNumber: { type: String, unique: true, sparse: true }
 }, {
     timestamps: true
 });

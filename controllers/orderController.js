@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Notification = require('../models/Notification');
 const Coupon = require('../models/Coupon');
@@ -31,6 +32,16 @@ const addOrderItems = async (req, res) => {
         if (orderItems && orderItems.length === 0) {
             return res.status(400).json({ message: 'No order items' });
         } else {
+            // Generate clean short unique order number e.g. ORD-749281
+            let orderNumber;
+            let isUnique = false;
+            while (!isUnique) {
+                const randomDigits = Math.floor(100000 + Math.random() * 900000);
+                orderNumber = `ORD-${randomDigits}`;
+                const exists = await Order.findOne({ orderNumber });
+                if (!exists) isUnique = true;
+            }
+
             const order = new Order({
                 user: req.user._id,
                 orderItems,
@@ -42,7 +53,8 @@ const addOrderItems = async (req, res) => {
                 shippingMethodName,
                 totalPrice,
                 coupon: coupon || undefined,
-                discountAmount: discountAmount || 0
+                discountAmount: discountAmount || 0,
+                orderNumber
             });
 
             const createdOrder = await order.save();
@@ -53,16 +65,17 @@ const addOrderItems = async (req, res) => {
                 const currency = settings?.currency || 'USD';
                 const userName = req.user?.name || 'Customer';
                 const itemsCount = createdOrder.orderItems?.length || 0;
-                const shortId = createdOrder._id.toString().substring(0, 8).toUpperCase();
+                const displayId = createdOrder.orderNumber || createdOrder._id.toString().substring(0, 8).toUpperCase();
 
                 await Notification.create({
                     user: req.user._id,
                     type: 'new_order',
-                    title: `New Order #${shortId}`,
-                    message: `New order of ${currency} ${createdOrder.totalPrice} (${itemsCount} items) placed by ${userName} via ${createdOrder.paymentMethod}.`,
+                    title: `New Order #${displayId}`,
+                    message: `New order #${displayId} of ${currency} ${createdOrder.totalPrice} (${itemsCount} items) placed by ${userName} via ${createdOrder.paymentMethod}.`,
                     link: '/admin/orderlist',
                     meta: { 
                         orderId: createdOrder._id, 
+                        orderNumber: createdOrder.orderNumber,
                         totalPrice: createdOrder.totalPrice, 
                         paymentMethod: createdOrder.paymentMethod,
                         itemsCount 
@@ -87,6 +100,7 @@ const addOrderItems = async (req, res) => {
                     // 1. Email Admin (send directly to configured SMTP sender/username email)
                     const adminRecipientEmail = settings?.senderEmail || settings?.smtpUsername;
                     const itemsHtml = createdOrder.orderItems.map(item => `<li>${item.qty}x ${item.name} - ${currency} ${item.price}</li>`).join('');
+                    const orderDisplayId = createdOrder.orderNumber || createdOrder._id.toString().substring(0, 8).toUpperCase();
 
                     console.log('--- STARTING ORDER EMAIL PROCESS ---');
                     console.log('Admin Email:', adminRecipientEmail);
@@ -95,15 +109,15 @@ const addOrderItems = async (req, res) => {
                         console.log('Sending email to Admin...');
                         await sendEmail({
                             email: adminRecipientEmail,
-                            subject: `[${siteName}] New Order Booked #${createdOrder._id.toString().substring(0, 8)}`,
-                            message: `New order ${createdOrder._id} for ${currency} ${createdOrder.totalPrice}`,
+                            subject: `[${siteName}] New Order Booked #${orderDisplayId}`,
+                            message: `New order #${orderDisplayId} for ${currency} ${createdOrder.totalPrice}`,
                             html: `
                                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                                    <h2 style="color: #f28b00;">New Order Received!</h2>
+                                    <h2 style="color: #6366f1;">New Order Received!</h2>
                                     <p>Hello Admin,</p>
                                     <p>A new order has been placed on <strong>${siteName}</strong>.</p>
                                     <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                                        <p><strong>Order ID:</strong> ${createdOrder._id}</p>
+                                        <p><strong>Order ID:</strong> #${orderDisplayId}</p>
                                         <p><strong>Payment Method:</strong> ${createdOrder.paymentMethod}</p>
                                         <p><strong>Total Amount:</strong> ${currency} ${createdOrder.totalPrice}</p>
                                         <h4>Items Ordered:</h4>
@@ -127,15 +141,15 @@ const addOrderItems = async (req, res) => {
                         console.log('Sending email to Customer:', customerEmail);
                         await sendEmail({
                             email: customerEmail,
-                            subject: `[${siteName}] Order Confirmed! #${createdOrder._id.toString().substring(0, 8)}`,
-                            message: `Your order ${createdOrder._id} for ${currency} ${createdOrder.totalPrice} is confirmed.`,
+                            subject: `[${siteName}] Order Confirmed! #${orderDisplayId}`,
+                            message: `Your order #${orderDisplayId} for ${currency} ${createdOrder.totalPrice} is confirmed.`,
                             html: `
                                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                                    <h2 style="color: #f28b00;">Order Confirmed! 🎉</h2>
+                                    <h2 style="color: #6366f1;">Order Confirmed! 🎉</h2>
                                     <p>Hello ${req.user.name || 'Customer'},</p>
                                     <p>Thank you for shopping with <strong>${siteName}</strong>! We have received your order successfully.</p>
                                     <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                                        <p><strong>Order ID:</strong> ${createdOrder._id}</p>
+                                        <p><strong>Order ID:</strong> #${orderDisplayId}</p>
                                         <p><strong>Payment Method:</strong> ${createdOrder.paymentMethod}</p>
                                         <p><strong>Total Amount:</strong> ${currency} ${createdOrder.totalPrice}</p>
                                         <h4>Items Ordered:</h4>
@@ -153,7 +167,7 @@ const addOrderItems = async (req, res) => {
                     if (settings?.contactDetails?.phone) {
                         await sendSMS({
                             phone: settings.contactDetails.phone,
-                            message: `[${siteName}] New Order Booked! Order ID: ${createdOrder._id.toString().substring(0, 8)}, Total: ${currency} ${createdOrder.totalPrice}. Check Admin Dashboard.`
+                            message: `[${siteName}] New Order Booked! Order ID: #${orderDisplayId}, Total: ${currency} ${createdOrder.totalPrice}. Check Admin Dashboard.`
                         });
                     }
                 } catch (notiErr) {
@@ -174,7 +188,14 @@ const addOrderItems = async (req, res) => {
 // @access  Private
 const getOrderById = async (req, res) => {
     try {
-        const order = await Order.findById(req.params.id).populate('user', 'name email');
+        const id = req.params.id;
+        let order;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            order = await Order.findById(id).populate('user', 'name email');
+        }
+        if (!order) {
+            order = await Order.findOne({ orderNumber: id }).populate('user', 'name email');
+        }
         if (order) {
             res.json(order);
         } else {
