@@ -5,7 +5,7 @@ const Notification = require('../models/Notification');
 // @access  Private/Admin
 const getAdminNotifications = async (req, res) => {
     try {
-        const { type, unreadOnly, limit = 50 } = req.query;
+        const { type, unreadOnly, limit = 100, page = 1 } = req.query;
         const query = {};
 
         if (type && type !== 'all') {
@@ -16,19 +16,28 @@ const getAdminNotifications = async (req, res) => {
             query.isRead = false;
         }
 
+        const pageSize = Number(limit);
+        const currentPage = Math.max(1, Number(page));
+        const skip = (currentPage - 1) * pageSize;
+
         const notifications = await Notification.find(query)
             .sort({ createdAt: -1 })
-            .limit(Number(limit))
+            .skip(skip)
+            .limit(pageSize)
             .populate('user', 'name email phone');
 
         const unreadCount = await Notification.countDocuments({ isRead: false });
         const totalCount = await Notification.countDocuments();
+        const filteredCount = await Notification.countDocuments(query);
 
         res.json({
             success: true,
             notifications,
             unreadCount,
-            totalCount
+            totalCount,
+            filteredCount,
+            page: currentPage,
+            pages: Math.ceil(filteredCount / pageSize) || 1
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
