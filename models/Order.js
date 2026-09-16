@@ -58,6 +58,11 @@ const orderSchema = new mongoose.Schema({
     trackingNumber: { type: String },
     invoiceUrl: { type: String },
     
+    // Cancellation & Return
+    cancellationReason: { type: String },
+    returnReason: { type: String },
+    returnRequestDate: { type: Date },
+    
     // Coupon applied
     coupon: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon' },
     discountAmount: { type: Number, default: 0 },

@@ -308,7 +308,69 @@ const updateOrderStatus = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+// @desc    Cancel an order
+// @route   PUT /api/orders/:id/cancel
+// @access  Private
+const cancelOrder = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id);
+        const { reason } = req.body;
 
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+        
+        // Ensure only the user who made the order or an admin can cancel
+        if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+            return res.status(401).json({ message: 'Not authorized to cancel this order' });
+        }
+
+        // Only allow cancellation if order is not shipped or delivered
+        if (order.status === 'Shipped' || order.status === 'Delivered' || order.status === 'OutForDelivery') {
+            return res.status(400).json({ message: 'Cannot cancel an order that is already shipped or delivered' });
+        }
+
+        order.status = 'Cancelled';
+        order.cancellationReason = reason || 'Cancelled by customer';
+        
+        const updatedOrder = await order.save();
+        res.json(updatedOrder);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Request return for an order
+// @route   PUT /api/orders/:id/return
+// @access  Private
+const returnOrder = async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id);
+        const { returnReason } = req.body;
+
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+            return res.status(401).json({ message: 'Not authorized to return this order' });
+        }
+
+        if (!order.isDelivered || order.status !== 'Delivered') {
+            return res.status(400).json({ message: 'Only delivered orders can be returned' });
+        }
+
+        order.status = 'Returned';
+        order.returnReason = returnReason || 'Return requested by customer';
+        order.returnRequestDate = Date.now();
+        order.isDelivered = false; // Optionally mark isDelivered false, or leave it true but status Returned. Let's leave it false to match hierarchy.
+
+        const updatedOrder = await order.save();
+        res.json(updatedOrder);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
 // @desc    Get logged in user orders
 // @route   GET /api/orders/myorders
 // @access  Private
@@ -575,6 +637,8 @@ module.exports = {
     updateOrderToPaid, 
     updateOrderToDelivered, 
     updateOrderStatus,
+    cancelOrder,
+    returnOrder,
     getMyOrders, 
     getOrders,
     deleteOrder,

@@ -54,6 +54,8 @@ const productSchema = new mongoose.Schema({
     salePrice: { type: Number },
     discount: { type: Number, default: 0 },
     gstPercentage: { type: Number, default: 0 },
+    isReturnable: { type: Boolean, default: true },
+    returnDays: { type: Number, default: 7 },
     countInStock: { type: Number, required: true, default: 0 }
 }, {
     timestamps: true

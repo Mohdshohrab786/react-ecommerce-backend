@@ -6,6 +6,8 @@ const {
     updateOrderToPaid, 
     updateOrderToDelivered, 
     updateOrderStatus,
+    cancelOrder,
+    returnOrder,
     getMyOrders, 
     getOrders,
     deleteOrder,
@@ -22,6 +24,8 @@ router.route('/export/csv').get(protect, admin, exportOrdersCSV);
 router.route('/myorders').get(protect, getMyOrders);
 router.route('/:id').get(protect, getOrderById).delete(protect, admin, deleteOrder);
 router.route('/:id/pay').put(protect, updateOrderToPaid);
+router.route('/:id/cancel').put(protect, cancelOrder);
+router.route('/:id/return').put(protect, returnOrder);
 router.route('/:id/deliver').put(protect, admin, updateOrderToDelivered);
 router.route('/:id/status').put(protect, admin, updateOrderStatus);
 
