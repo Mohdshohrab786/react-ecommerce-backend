@@ -334,6 +334,60 @@ const cancelOrder = async (req, res) => {
         order.cancellationReason = reason || 'Cancelled by customer';
         
         const updatedOrder = await order.save();
+        
+        // Notifications
+        setTimeout(async () => {
+            try {
+                const Setting = require('../models/Setting');
+                const sendEmail = require('../utils/sendEmail');
+                const sendSMS = require('../utils/sendSMS');
+                
+                const settings = await Setting.findOne({});
+                const siteName = settings?.websiteName || 'E-Commerce';
+                const adminEmail = settings?.senderEmail || settings?.smtpUsername;
+                const orderIdStr = updatedOrder.orderNumber || updatedOrder._id.toString().substring(0, 8).toUpperCase();
+
+                // Admin Notification
+                if (adminEmail) {
+                    await sendEmail({
+                        email: adminEmail,
+                        subject: `[${siteName}] Order Cancelled #${orderIdStr}`,
+                        message: `Order #${orderIdStr} has been cancelled by the customer. Reason: ${updatedOrder.cancellationReason}`,
+                        html: `<div style="padding: 20px;">
+                            <h2 style="color: #ef4444;">Order Cancelled</h2>
+                            <p>Customer has cancelled order <strong>#${orderIdStr}</strong>.</p>
+                            <p><strong>Reason:</strong> ${updatedOrder.cancellationReason}</p>
+                        </div>`
+                    });
+                }
+
+                // Customer Notification
+                if (req.user && req.user.email) {
+                    await sendEmail({
+                        email: req.user.email,
+                        subject: `[${siteName}] Order Cancelled #${orderIdStr}`,
+                        message: `Your order #${orderIdStr} has been successfully cancelled.`,
+                        html: `<div style="padding: 20px;">
+                            <h2 style="color: #ef4444;">Order Cancelled</h2>
+                            <p>Hello ${req.user.name || 'Customer'},</p>
+                            <p>Your order <strong>#${orderIdStr}</strong> has been cancelled successfully as requested.</p>
+                            <p>If you have already paid, your refund will be processed soon.</p>
+                        </div>`
+                    });
+                }
+
+                // SMS admin
+                if (settings?.contactDetails?.phone) {
+                    await sendSMS({
+                        phone: settings.contactDetails.phone,
+                        message: `[${siteName}] Order Cancelled! ID: #${orderIdStr}. Reason: ${updatedOrder.cancellationReason}`
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to send cancellation emails:', err.message);
+            }
+        }, 100);
+
         res.json(updatedOrder);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -366,6 +420,61 @@ const returnOrder = async (req, res) => {
         order.isDelivered = false; // Optionally mark isDelivered false, or leave it true but status Returned. Let's leave it false to match hierarchy.
 
         const updatedOrder = await order.save();
+        
+        // Notifications
+        setTimeout(async () => {
+            try {
+                const Setting = require('../models/Setting');
+                const sendEmail = require('../utils/sendEmail');
+                const sendSMS = require('../utils/sendSMS');
+                
+                const settings = await Setting.findOne({});
+                const siteName = settings?.websiteName || 'E-Commerce';
+                const adminEmail = settings?.senderEmail || settings?.smtpUsername;
+                const orderIdStr = updatedOrder.orderNumber || updatedOrder._id.toString().substring(0, 8).toUpperCase();
+
+                // Admin Notification
+                if (adminEmail) {
+                    await sendEmail({
+                        email: adminEmail,
+                        subject: `[${siteName}] Return Requested #${orderIdStr}`,
+                        message: `Return requested for order #${orderIdStr}. Reason: ${updatedOrder.returnReason}`,
+                        html: `<div style="padding: 20px;">
+                            <h2 style="color: #f59e0b;">Return Requested</h2>
+                            <p>Customer has requested a return for order <strong>#${orderIdStr}</strong>.</p>
+                            <p><strong>Reason:</strong> ${updatedOrder.returnReason}</p>
+                            <p>Please check the Admin Dashboard to arrange courier pickup.</p>
+                        </div>`
+                    });
+                }
+
+                // Customer Notification
+                if (req.user && req.user.email) {
+                    await sendEmail({
+                        email: req.user.email,
+                        subject: `[${siteName}] Return Initiated #${orderIdStr}`,
+                        message: `Your return request for order #${orderIdStr} has been received.`,
+                        html: `<div style="padding: 20px;">
+                            <h2 style="color: #f59e0b;">Return Initiated</h2>
+                            <p>Hello ${req.user.name || 'Customer'},</p>
+                            <p>We have successfully received your return request for order <strong>#${orderIdStr}</strong>.</p>
+                            <p>Our courier partner will contact you soon for the pickup.</p>
+                        </div>`
+                    });
+                }
+
+                // SMS admin
+                if (settings?.contactDetails?.phone) {
+                    await sendSMS({
+                        phone: settings.contactDetails.phone,
+                        message: `[${siteName}] Return Request! ID: #${orderIdStr}. Reason: ${updatedOrder.returnReason}`
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to send return emails:', err.message);
+            }
+        }, 100);
+
         res.json(updatedOrder);
     } catch (error) {
         res.status(500).json({ message: error.message });
