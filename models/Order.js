@@ -47,7 +47,7 @@ const orderSchema = new mongoose.Schema({
     // Status Flow
     status: { 
         type: String, 
-        enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Returned', 'Refunded'],
+        enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'OutForDelivery', 'Delivered', 'Cancelled', 'Returned', 'Refunded'],
         default: 'Pending'
     },
     
