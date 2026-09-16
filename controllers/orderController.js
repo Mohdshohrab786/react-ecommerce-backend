@@ -334,6 +334,23 @@ const cancelOrder = async (req, res) => {
         order.cancellationReason = reason || 'Cancelled by customer';
         
         const updatedOrder = await order.save();
+        const orderIdStr = updatedOrder.orderNumber || updatedOrder._id.toString().substring(0, 8).toUpperCase();
+
+        // Admin Dashboard Notification
+        try {
+            const Notification = require('../models/Notification');
+            const userName = req.user?.name || 'Customer';
+            await Notification.create({
+                user: req.user._id,
+                type: 'order_cancelled',
+                title: `Order Cancelled #${orderIdStr}`,
+                message: `Order #${orderIdStr} was cancelled by ${userName}. Reason: ${updatedOrder.cancellationReason}`,
+                link: '/admin/orderlist',
+                meta: { orderId: updatedOrder._id, orderNumber: updatedOrder.orderNumber }
+            });
+        } catch (notiErr) {
+            console.error('Failed to create cancel notification:', notiErr.message);
+        }
         
         // Notifications
         setTimeout(async () => {
@@ -420,6 +437,23 @@ const returnOrder = async (req, res) => {
         order.isDelivered = false; // Optionally mark isDelivered false, or leave it true but status Returned. Let's leave it false to match hierarchy.
 
         const updatedOrder = await order.save();
+        const orderIdStr = updatedOrder.orderNumber || updatedOrder._id.toString().substring(0, 8).toUpperCase();
+
+        // Admin Dashboard Notification
+        try {
+            const Notification = require('../models/Notification');
+            const userName = req.user?.name || 'Customer';
+            await Notification.create({
+                user: req.user._id,
+                type: 'return_request',
+                title: `Return Requested #${orderIdStr}`,
+                message: `Return requested for order #${orderIdStr} by ${userName}. Reason: ${updatedOrder.returnReason}`,
+                link: '/admin/orderlist',
+                meta: { orderId: updatedOrder._id, orderNumber: updatedOrder.orderNumber }
+            });
+        } catch (notiErr) {
+            console.error('Failed to create return notification:', notiErr.message);
+        }
         
         // Notifications
         setTimeout(async () => {
