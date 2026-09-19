@@ -44,9 +44,22 @@ const addOrderItems = async (req, res) => {
                 if (!exists) isUnique = true;
             }
 
+            const Product = require('../models/Product');
+            
+            // Enrich order items with current product return policies
+            const enrichedOrderItems = await Promise.all(orderItems.map(async (item) => {
+                const product = await Product.findById(item.product);
+                return {
+                    ...item,
+                    isReturnable: product ? product.isReturnable : true,
+                    isReplaceable: product ? product.isReplaceable : true,
+                    returnDays: product ? product.returnDays : 7
+                };
+            }));
+
             const order = new Order({
                 user: req.user._id,
-                orderItems,
+                orderItems: enrichedOrderItems,
                 shippingAddress,
                 paymentMethod,
                 itemsPrice,
@@ -477,7 +490,7 @@ const cancelOrder = async (req, res) => {
 const returnOrder = async (req, res) => {
     try {
         const order = await Order.findById(req.params.id);
-        const { returnReason, requestType } = req.body;
+        const { returnReason, requestType, returnItems: reqReturnItems } = req.body;
 
         if (!order) {
             return res.status(404).json({ message: 'Order not found' });
@@ -491,25 +504,47 @@ const returnOrder = async (req, res) => {
             return res.status(400).json({ message: 'Only delivered orders can be returned' });
         }
 
-        
         order.status = requestType === 'REPLACEMENT' ? 'Replacement Requested' : 'Returned';
         order.returnReason = `[${requestType || 'RETURN'}] ${returnReason || 'Requested by customer'}`;
         order.returnRequestDate = Date.now();
-        // order.isDelivered = false; // keep it true to know it was delivered
 
-        const returnItems = order.orderItems.map(item => ({
-            name: item.name,
-            qty: item.qty,
-            price: item.price,
-            product: item.product
-        }));
+        let returnItems = [];
+        let refundAmount = 0;
+
+        if (reqReturnItems && Array.isArray(reqReturnItems) && reqReturnItems.length > 0) {
+            reqReturnItems.forEach(reqItem => {
+                const orderItem = order.orderItems.find(item => item.product.toString() === reqItem.product.toString());
+                if (orderItem) {
+                    const qty = Math.min(reqItem.qty || 1, orderItem.qty);
+                    returnItems.push({
+                        name: orderItem.name,
+                        qty: qty,
+                        price: orderItem.price,
+                        product: orderItem.product
+                    });
+                    refundAmount += (orderItem.price * qty);
+                }
+            });
+        } else {
+            returnItems = order.orderItems.map(item => ({
+                name: item.name,
+                qty: item.qty,
+                price: item.price,
+                product: item.product
+            }));
+            refundAmount = order.totalPaid > 0 ? order.totalPaid : order.totalPrice;
+        }
+
+        if (returnItems.length === 0) {
+            return res.status(400).json({ message: 'No valid items to return' });
+        }
 
         const newReturn = new Return({
             user: order.user,
             order: order._id,
             returnItems,
             reason: order.returnReason,
-            refundAmount: order.totalPaid > 0 ? order.totalPaid : order.totalPrice,
+            refundAmount: refundAmount,
             status: 'REQUESTED'
         });
         await newReturn.save();
@@ -929,31 +964,46 @@ const getReturnEligibility = async (req, res) => {
         
         const settings = await Setting.findOne();
         if (settings && !settings.isReturnsEnabled) {
-            return res.json({ canReturn: false, reason: 'Returns are currently disabled' });
+            return res.json({ canReturn: false, reason: 'Returns are currently disabled', itemsEligibility: [] });
         }
-        
         
         if (!order.isDelivered) {
-            return res.json({ canReturn: false, reason: 'Order is not delivered yet' });
+            return res.json({ canReturn: false, reason: 'Order is not delivered yet', itemsEligibility: [] });
         }
     
-        
-        const deliveredDate = new Date(order.deliveredAt || order.updatedAt);
-        const windowDays = (settings && settings.returnWindowDays) || 7;
-        const deadline = new Date(deliveredDate);
-        deadline.setDate(deadline.getDate() + windowDays);
-        
-        if (new Date() > deadline) {
-            return res.json({ canReturn: false, reason: 'Return window has expired' });
-        }
-        
-        // Check if return already exists
         const existingReturn = await Return.findOne({ order: order._id, status: { $ne: 'CANCELLED' } });
         if (existingReturn) {
-            return res.json({ canReturn: false, reason: 'Return already requested', return: existingReturn });
+            return res.json({ canReturn: false, reason: 'Return already requested', return: existingReturn, itemsEligibility: [] });
         }
         
-        return res.json({ canReturn: true, reason: null });
+        const deliveredDate = new Date(order.deliveredAt || order.updatedAt);
+        
+        const itemsEligibility = order.orderItems.map(item => {
+            const isRet = item.isReturnable !== undefined ? item.isReturnable : true;
+            const isRep = item.isReplaceable !== undefined ? item.isReplaceable : true;
+            const days = item.returnDays !== undefined ? item.returnDays : ((settings && settings.returnWindowDays) || 7);
+            
+            const deadline = new Date(deliveredDate);
+            deadline.setDate(deadline.getDate() + days);
+            const expired = new Date() > deadline;
+            
+            return {
+                product: item.product,
+                name: item.name,
+                canReturn: isRet && !expired,
+                canReplace: isRep && !expired,
+                reason: expired ? 'Window expired' : (!isRet && !isRep ? 'Non-returnable item' : null),
+                deadline
+            };
+        });
+        
+        const canReturnAny = itemsEligibility.some(item => item.canReturn || item.canReplace);
+        
+        return res.json({ 
+            canReturn: canReturnAny, 
+            reason: canReturnAny ? null : 'No items are eligible for return/replace', 
+            itemsEligibility 
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

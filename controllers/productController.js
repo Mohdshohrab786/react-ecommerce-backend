@@ -114,6 +114,10 @@ const updateProduct = async (req, res) => {
             product.variants = variants !== undefined ? variants : product.variants;
             product.sizes = sizes !== undefined ? sizes : product.sizes;
             product.relatedProducts = relatedProducts !== undefined ? relatedProducts : product.relatedProducts;
+            
+            if (req.body.isReturnable !== undefined) product.isReturnable = req.body.isReturnable;
+            if (req.body.isReplaceable !== undefined) product.isReplaceable = req.body.isReplaceable;
+            if (req.body.returnDays !== undefined) product.returnDays = req.body.returnDays;
 
             const updatedProduct = await product.save();
             res.json(updatedProduct);

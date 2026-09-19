@@ -16,7 +16,11 @@ const orderSchema = new mongoose.Schema({
                 type: mongoose.Schema.Types.ObjectId,
                 required: true,
                 ref: 'Product'
-            }
+            },
+            isReturnable: { type: Boolean, default: true },
+            isReplaceable: { type: Boolean, default: true },
+            returnDays: { type: Number, default: 7 },
+            status: { type: String, enum: ['Delivered', 'Return Requested', 'Returned', 'Replacement Requested', 'Replaced'], required: false }
         }
     ],
     shippingAddress: {
