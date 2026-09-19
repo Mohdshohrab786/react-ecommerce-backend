@@ -57,6 +57,24 @@ const addOrderItems = async (req, res) => {
                 };
             }));
 
+            let orderIsPaid = false;
+            let orderTotalPaid = 0;
+            
+            // Check if they want to pay with Wallet
+            if (paymentMethod === 'Wallet') {
+                const wallet = await Wallet.findOne({ user: req.user._id });
+                if (!wallet || wallet.balance < totalPrice) {
+                    return res.status(400).json({ message: 'Insufficient wallet balance to place this order.' });
+                }
+                
+                // Deduct from wallet
+                wallet.balance -= totalPrice;
+                await wallet.save();
+                
+                orderIsPaid = true;
+                orderTotalPaid = totalPrice;
+            }
+
             const order = new Order({
                 user: req.user._id,
                 orderItems: enrichedOrderItems,
@@ -69,10 +87,32 @@ const addOrderItems = async (req, res) => {
                 totalPrice,
                 coupon: coupon || undefined,
                 discountAmount: discountAmount || 0,
-                orderNumber
+                orderNumber,
+                isPaid: orderIsPaid,
+                paidAt: orderIsPaid ? Date.now() : undefined,
+                totalPaid: orderTotalPaid
             });
 
+            if (orderIsPaid) {
+                order.paymentResult = { id: `WLT-${Date.now()}`, status: 'completed' };
+            }
+
             const createdOrder = await order.save();
+
+            // Create wallet transaction record if paid via wallet
+            if (orderIsPaid) {
+                const wallet = await Wallet.findOne({ user: req.user._id });
+                if (wallet) {
+                    await Transaction.create({
+                        wallet: wallet._id,
+                        type: 'DEBIT',
+                        amount: totalPrice,
+                        description: `Payment for Order #${orderNumber}`,
+                        reference: createdOrder._id,
+                        status: 'COMPLETED'
+                    });
+                }
+            }
 
             // Trigger admin notification for new order
             try {
