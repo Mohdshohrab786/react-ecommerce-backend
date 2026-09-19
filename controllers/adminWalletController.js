@@ -345,6 +345,53 @@ const updateReturnStatus = async (req, res) => {
                 ord.status = 'Refunded';
             } else if (isReplacement && status === 'RECEIVED') {
                 ord.status = 'Replaced';
+                
+                // --- GENERATE REPLACEMENT ORDER ---
+                try {
+                    // Match returned items to original order items to get images
+                    const repItems = ord.orderItems.map(item => {
+                        const returnedItem = returnReq.returnItems.find(r => r.product.toString() === item.product.toString());
+                        if (returnedItem) {
+                            return {
+                                name: item.name,
+                                qty: returnedItem.qty,
+                                image: item.image,
+                                price: 0, // Zero cost for replacement
+                                product: item.product
+                            };
+                        }
+                        return null;
+                    }).filter(Boolean);
+
+                    // Generate unique ID
+                    let repOrderNumber;
+                    let isUnique = false;
+                    while (!isUnique) {
+                        const randomDigits = Math.floor(100000 + Math.random() * 900000);
+                        repOrderNumber = `REP-${randomDigits}`;
+                        const exists = await Order.findOne({ orderNumber: repOrderNumber });
+                        if (!exists) isUnique = true;
+                    }
+
+                    const newOrder = new Order({
+                        user: ord.user,
+                        orderItems: repItems,
+                        shippingAddress: ord.shippingAddress,
+                        paymentMethod: 'Replacement',
+                        paymentResult: { id: `REP-${returnReq._id}`, status: 'completed' },
+                        totalPrice: 0,
+                        totalPaid: 0,
+                        isPaid: true,
+                        paidAt: Date.now(),
+                        status: 'Pending',
+                        isDelivered: false,
+                        orderNumber: repOrderNumber
+                    });
+                    await newOrder.save();
+                } catch (err) {
+                    console.error('Failed to create replacement order:', err);
+                }
+                // --- END REPLACEMENT ORDER ---
             }
             await ord.save();
         }
