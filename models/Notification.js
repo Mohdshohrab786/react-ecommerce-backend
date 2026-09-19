@@ -4,7 +4,7 @@ const notificationSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
     type: { 
         type: String, 
-        enum: ['new_order', 'new_user', 'order_status', 'system', 'Email', 'SMS', 'WhatsApp', 'Push', 'InApp'], 
+        enum: ['new_order', 'new_user', 'order_status', 'system', 'Email', 'SMS', 'WhatsApp', 'Push', 'InApp', 'order_cancelled', 'return_request', 'replacement_request'], 
         default: 'InApp' 
     },
     title: { type: String, required: true },

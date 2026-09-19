@@ -48,7 +48,16 @@ const settingSchema = new mongoose.Schema({
         isRatingFilterEnabled: { type: Boolean, default: true },
         isColorFilterEnabled: { type: Boolean, default: true },
         isSizeFilterEnabled: { type: Boolean, default: true }
-    }
+    },
+    
+    // Wallet & Return Settings
+    isWalletEnabled: { type: Boolean, default: true },
+    isWalletPaymentEnabled: { type: Boolean, default: true },
+    isMixedPaymentEnabled: { type: Boolean, default: true },
+    isRefundToWalletEnabled: { type: Boolean, default: true },
+    isReturnsEnabled: { type: Boolean, default: true },
+    returnWindowDays: { type: Number, default: 7 },
+    isCancellationEnabled: { type: Boolean, default: true }
 }, { timestamps: true });
 
 const Setting = mongoose.model('Setting', settingSchema);

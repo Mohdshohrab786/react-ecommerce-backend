@@ -41,13 +41,16 @@ const orderSchema = new mongoose.Schema({
     totalPrice: { type: Number, required: true, default: 0.0 },
     
     // Payment info
+    walletAmount: { type: Number, default: 0 },
+    onlineAmount: { type: Number, default: 0 },
+    totalPaid: { type: Number, default: 0 },
     isPaid: { type: Boolean, required: true, default: false },
     paidAt: { type: Date },
     
     // Status Flow
     status: { 
         type: String, 
-        enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'OutForDelivery', 'Delivered', 'Cancelled', 'Returned', 'Refunded'],
+        enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'OutForDelivery', 'Delivered', 'Cancelled', 'Returned', 'Refunded', 'Replacement Requested', 'Replaced'],
         default: 'Pending'
     },
     

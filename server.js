@@ -19,6 +19,7 @@ const wishlistRoutes = require('./routes/wishlistRoutes');
 const newsletterRoutes = require('./routes/newsletterRoutes');
 const shippingRuleRoutes = require('./routes/shippingRuleRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 const path = require('path');
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/blogs', blogRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/shipping-rules', shippingRuleRoutes);
+app.use('/api/wallet', walletRoutes);
 
 app.get('/', (req, res) => {
     res.send('API is running...');
