@@ -287,7 +287,7 @@ const updateReturnStatus = async (req, res) => {
             const existingRefund = await Refund.findOne({ returnRequest: returnReq._id, status: 'COMPLETED' });
             if (!existingRefund) {
                 // Create refund record
-                const refundRef = `REFUND-RET-\${returnReq._id}-\${Date.now()}`;
+                const refundRef = `REFUND-RET-${returnReq._id}-${Date.now()}`;
                 const refund = new Refund({
                     user: returnReq.user,
                     order: returnReq.order,
