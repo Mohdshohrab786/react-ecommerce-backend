@@ -62,28 +62,39 @@ const addOrderItems = async (req, res) => {
             let balanceBefore = 0;
             let balanceAfter = 0;
             
-            // Check if they want to pay with Wallet
-            if (paymentMethod === 'Wallet') {
+            let walletAmountApplied = Number(req.body.walletAmount) || 0;
+            let walletUsed = false;
+
+            // Check if they want to pay with Wallet ONLY (legacy flow) or partial wallet
+            if (paymentMethod === 'Wallet' && walletAmountApplied === 0) {
+                walletAmountApplied = totalPrice;
+            }
+
+            if (walletAmountApplied > 0) {
                 const wallet = await Wallet.findOne({ user: req.user._id });
-                if (!wallet || wallet.balance < totalPrice) {
-                    return res.status(400).json({ message: 'Insufficient wallet balance to place this order.' });
+                if (!wallet || wallet.balance < walletAmountApplied) {
+                    return res.status(400).json({ message: 'Insufficient wallet balance to apply this amount.' });
                 }
                 
                 balanceBefore = wallet.balance;
-                // Deduct from wallet
-                wallet.balance -= totalPrice;
+                wallet.balance -= walletAmountApplied;
+                wallet.totalDebited += walletAmountApplied;
                 await wallet.save();
                 balanceAfter = wallet.balance;
                 
-                orderIsPaid = true;
-                orderTotalPaid = totalPrice;
+                walletUsed = true;
+                orderTotalPaid += walletAmountApplied;
+                
+                if (orderTotalPaid >= totalPrice) {
+                    orderIsPaid = true;
+                }
             }
 
             const order = new Order({
                 user: req.user._id,
                 orderItems: enrichedOrderItems,
                 shippingAddress,
-                paymentMethod,
+                paymentMethod: walletUsed && orderTotalPaid >= totalPrice ? 'Wallet' : paymentMethod,
                 itemsPrice,
                 taxPrice,
                 shippingPrice,
@@ -94,7 +105,9 @@ const addOrderItems = async (req, res) => {
                 orderNumber,
                 isPaid: orderIsPaid,
                 paidAt: orderIsPaid ? Date.now() : undefined,
-                totalPaid: orderTotalPaid
+                totalPaid: orderTotalPaid,
+                walletAmount: walletAmountApplied,
+                onlineAmount: orderIsPaid && paymentMethod !== 'COD' ? orderTotalPaid - walletAmountApplied : 0
             });
 
             if (orderIsPaid) {
@@ -104,7 +117,7 @@ const addOrderItems = async (req, res) => {
             const createdOrder = await order.save();
 
             // Create wallet transaction record if paid via wallet
-            if (orderIsPaid && paymentMethod === 'Wallet') {
+            if (walletUsed) {
                 const wallet = await Wallet.findOne({ user: req.user._id });
                 if (wallet) {
                     await Transaction.create({
@@ -112,12 +125,12 @@ const addOrderItems = async (req, res) => {
                         user: req.user._id,
                         order: createdOrder._id,
                         type: 'ORDER_PAYMENT',
-                        amount: totalPrice,
+                        amount: walletAmountApplied,
                         direction: 'DEBIT',
                         balanceBefore,
                         balanceAfter,
                         referenceId: `WLT-PAY-${createdOrder._id}-${Date.now()}`,
-                        description: `Payment for Order #${orderNumber}`,
+                        description: `Partial/Full Payment for Order #${orderNumber}`,
                         status: 'COMPLETED'
                     });
                 }
