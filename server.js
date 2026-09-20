@@ -22,15 +22,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const path = require('path');
 
-const mongoSanitize = require('express-mongo-sanitize');
-const helmet = require('helmet');
-
 const app = express();
-
-// Security Middlewares
-app.use(helmet()); // Secure HTTP headers
-app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" })); // Allow images to load from other domains if needed
-app.use(mongoSanitize()); // Prevent NoSQL Injection
 
 // CORS Configuration
 app.use(cors());
