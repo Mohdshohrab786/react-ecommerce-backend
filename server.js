@@ -33,21 +33,7 @@ app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" })); // Allow 
 app.use(mongoSanitize()); // Prevent NoSQL Injection
 
 // CORS Configuration
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://react-ecommerce-frontend-ly6c.onrender.com'
-];
-app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin) || origin.includes('onrender.com')) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true
-}));
+app.use(cors());
 
 app.use(express.json());
 
