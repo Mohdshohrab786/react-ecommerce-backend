@@ -23,7 +23,8 @@ const getProducts = async (req, res) => {
         const products = await Product.find({})
             .populate('category', 'name slug')
             .populate('brand', 'name')
-            .sort({ updatedAt: -1 });
+            .sort({ updatedAt: -1 })
+            .limit(1000);
         res.json(products);
     } catch (error) {
         res.status(500).json({ message: error.message });

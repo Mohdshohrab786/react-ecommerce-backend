@@ -792,7 +792,7 @@ const getMyOrders = async (req, res) => {
 // @access  Private/Admin
 const getOrders = async (req, res) => {
     try {
-        const orders = await Order.find({}).populate('user', 'id name email phone').sort({ createdAt: -1 });
+        const orders = await Order.find({}).populate('user', 'id name email phone').sort({ createdAt: -1 }).limit(500);
         res.json(orders);
     } catch (error) {
         res.status(500).json({ message: error.message });
