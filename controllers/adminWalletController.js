@@ -388,6 +388,38 @@ const updateReturnStatus = async (req, res) => {
     }
 };
 
+// @desc    Delete multiple returns
+// @route   DELETE /api/admin/returns
+// @access  Private/Admin
+const deleteReturns = async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ message: 'No return IDs provided' });
+        }
+        await Return.deleteMany({ _id: { $in: ids } });
+        res.json({ message: 'Returns deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete multiple refunds
+// @route   DELETE /api/admin/refunds
+// @access  Private/Admin
+const deleteRefunds = async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ message: 'No refund IDs provided' });
+        }
+        await Refund.deleteMany({ _id: { $in: ids } });
+        res.json({ message: 'Refunds deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getWallets,
     getWalletByUserId,
@@ -397,5 +429,7 @@ module.exports = {
     getRefunds,
     processRefund,
     getReturns,
-    updateReturnStatus
+    updateReturnStatus,
+    deleteReturns,
+    deleteRefunds
 };

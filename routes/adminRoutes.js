@@ -12,7 +12,9 @@ const {
     getRefunds,
     processRefund,
     getReturns,
-    updateReturnStatus
+    updateReturnStatus,
+    deleteReturns,
+    deleteRefunds
 } = require('../controllers/adminWalletController');
 
 router.route('/dashboard').get(protect, admin, getDashboardStats);
@@ -25,11 +27,11 @@ router.route('/wallets/:userId/credit').post(protect, admin, creditWallet);
 router.route('/wallets/:userId/debit').post(protect, admin, debitWallet);
 
 // Refunds
-router.route('/refunds').get(protect, admin, getRefunds);
+router.route('/refunds').get(protect, admin, getRefunds).delete(protect, admin, deleteRefunds);
 router.route('/refunds/:id/process').post(protect, admin, processRefund);
 
 // Returns
-router.route('/returns').get(protect, admin, getReturns);
+router.route('/returns').get(protect, admin, getReturns).delete(protect, admin, deleteReturns);
 router.route('/returns/:id/status').put(protect, admin, updateReturnStatus);
 
 module.exports = router;
