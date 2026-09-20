@@ -274,7 +274,12 @@ const getOrderById = async (req, res) => {
             order = await Order.findOne({ orderNumber: id }).populate('user', 'name email');
         }
         if (order) {
-            res.json(order);
+            const orderObj = order.toObject();
+            const returnReq = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+            if (returnReq) {
+                orderObj.returnRequest = returnReq;
+            }
+            res.json(orderObj);
         } else {
             res.status(404).json({ message: 'Order not found' });
         }
@@ -1006,7 +1011,7 @@ const getCancellationEligibility = async (req, res) => {
         }
         
         if (order.status === 'Cancelled') return res.json({ canCancel: false, reason: 'Order is already cancelled' });
-        if (['Shipped', 'OutForDelivery', 'Delivered', 'Returned', 'Replacement Requested'].includes(order.status)) {
+        if (['Shipped', 'OutForDelivery', 'Delivered', 'Returned', 'Refunded', 'Replaced', 'Replacement Requested'].includes(order.status)) {
             return res.json({ canCancel: false, reason: 'Order cannot be cancelled at this stage' });
         }
         
