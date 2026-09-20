@@ -3,6 +3,8 @@ const Transaction = require('../models/Transaction');
 const Refund = require('../models/Refund');
 const Return = require('../models/Return');
 const Order = require('../models/Order');
+const sendSMS = require('../utils/sendSMS');
+const sendEmail = require('../utils/sendEmail');
 
 // @desc    Get all wallets
 // @route   GET /api/admin/wallets
@@ -268,10 +270,24 @@ const updateReturnStatus = async (req, res) => {
                     returnReq.status = 'REFUNDED';
                     await returnReq.save();
                     
-                    const ord = await Order.findById(returnReq.order);
+                    const ord = await Order.findById(returnReq.order).populate('user', 'name email');
                     if (ord) {
                         ord.status = 'Refunded';
                         await ord.save();
+
+                        // Notify User via SMS & Email
+                        const phone = ord.shippingAddress?.phone;
+                        const message = `Hi ${ord.user.name}, your return for order #${ord.orderNumber} is approved. Rs.${returnReq.refundAmount} has been refunded to your wallet.`;
+                        if (phone) {
+                            sendSMS({ phone, message }).catch(e => console.error("SMS Error:", e));
+                        }
+                        if (ord.user.email) {
+                            sendEmail({
+                                email: ord.user.email,
+                                subject: 'Refund Processed to Wallet',
+                                message
+                            }).catch(e => console.error("Email Error:", e));
+                        }
                     }
                     
                     return res.json(returnReq); // Exit early since we changed status to REFUNDED
@@ -336,13 +352,27 @@ const updateReturnStatus = async (req, res) => {
         returnReq.status = status;
         await returnReq.save();
         
-        const ord = await Order.findById(returnReq.order);
+        const ord = await Order.findById(returnReq.order).populate('user', 'name email');
         if (ord) {
             const isReplacement = returnReq.reason && returnReq.reason.includes('[REPLACEMENT]');
             if (status === 'REJECTED') {
                 ord.status = 'Delivered'; // Revert back to delivered since it was rejected
             } else if (status === 'REFUNDED') {
                 ord.status = 'Refunded';
+                
+                // Notify User via SMS & Email
+                const phone = ord.shippingAddress?.phone;
+                const message = `Hi ${ord.user.name}, your refund of Rs.${returnReq.refundAmount} for order #${ord.orderNumber} has been processed to your wallet.`;
+                if (phone) {
+                    sendSMS({ phone, message }).catch(e => console.error("SMS Error:", e));
+                }
+                if (ord.user.email) {
+                    sendEmail({
+                        email: ord.user.email,
+                        subject: 'Refund Processed to Wallet',
+                        message
+                    }).catch(e => console.error("Email Error:", e));
+                }
             } else if (isReplacement && status === 'RECEIVED') {
                 // Naya order banane ke bajaye, purane order ka hi status reset kar do
                 ord.status = 'Processing';
