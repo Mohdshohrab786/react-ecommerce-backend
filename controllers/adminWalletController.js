@@ -246,15 +246,15 @@ const updateReturnStatus = async (req, res) => {
                     processedAt: Date.now()
                 });
                 
-                let wallet = await Wallet.findOne({ user: returnReq.user });
-                if (!wallet) {
-                    wallet = new Wallet({ user: returnReq.user, balance: 0, totalCredited: 0, totalDebited: 0 });
-                }
-                const balBefore = wallet.balance;
-                wallet.balance += returnReq.refundAmount;
-                wallet.totalCredited += returnReq.refundAmount;
-                await wallet.save();
-                
+                const initialWallet = await Wallet.findOne({ user: returnReq.user });
+                const balBefore = initialWallet ? initialWallet.balance : 0;
+
+                const wallet = await Wallet.findOneAndUpdate(
+                    { user: returnReq.user },
+                    { $inc: { balance: returnReq.refundAmount, totalCredited: returnReq.refundAmount } },
+                    { new: true, upsert: true }
+                );
+
                 await Transaction.create({
                     wallet: wallet._id,
                     user: returnReq.user,
@@ -273,6 +273,26 @@ const updateReturnStatus = async (req, res) => {
                 
                 refund.paymentId = `WLT-${refundRef}`;
                 await refund.save();
+
+                // Restore Stock for Refunds
+                const Product = require('../models/Product');
+                if (returnReq.returnItems && returnReq.returnItems.length > 0) {
+                    for (const item of returnReq.returnItems) {
+                        const product = await Product.findById(item.product);
+                        if (product) {
+                            if (product.hasVariants && product.variants) {
+                                const variantIndex = product.variants.findIndex(v => Number(v.price) === Number(item.price));
+                                if (variantIndex !== -1) {
+                                    product.variants[variantIndex].countInStock += item.qty;
+                                }
+                            } else {
+                                product.countInStock += item.qty;
+                            }
+                            await product.save();
+                        }
+                    }
+                }
+
             }
             returnReq.completedAt = Date.now();
             returnReq.status = 'REFUNDED'; // Always override to REFUNDED if money is sent

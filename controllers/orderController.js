@@ -46,16 +46,53 @@ const addOrderItems = async (req, res) => {
 
             const Product = require('../models/Product');
             
-            // Enrich order items with current product return policies
-            const enrichedOrderItems = await Promise.all(orderItems.map(async (item) => {
+            // Validate Prices and Stock, then Enrich order items
+            const enrichedOrderItems = [];
+            for (const item of orderItems) {
                 const product = await Product.findById(item.product);
-                return {
+                if (!product) {
+                    return res.status(404).json({ message: `Product not found: ${item.name}` });
+                }
+
+                // 1. Price Verification
+                let isValidPrice = false;
+                if (Number(item.price) === Number(product.price) || Number(item.price) === Number(product.salePrice)) {
+                    isValidPrice = true;
+                }
+                if (product.hasVariants && product.variants) {
+                    if (product.variants.some(v => Number(v.price) === Number(item.price))) {
+                        isValidPrice = true;
+                    }
+                }
+                
+                if (!isValidPrice) {
+                    return res.status(400).json({ message: `Price mismatch for product ${product.name}. Potential tampering detected.` });
+                }
+
+                // 2. Stock Verification and Deduction
+                if (product.hasVariants && product.variants) {
+                    const variantIndex = product.variants.findIndex(v => Number(v.price) === Number(item.price));
+                    if (variantIndex !== -1) {
+                        if (product.variants[variantIndex].countInStock < item.qty) {
+                            return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
+                        }
+                        product.variants[variantIndex].countInStock -= item.qty;
+                    }
+                } else {
+                    if (product.countInStock < item.qty) {
+                        return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
+                    }
+                    product.countInStock -= item.qty;
+                }
+                await product.save();
+
+                enrichedOrderItems.push({
                     ...item,
-                    isReturnable: product ? product.isReturnable : true,
-                    isReplaceable: product ? product.isReplaceable : true,
-                    returnDays: product ? product.returnDays : 7
-                };
-            }));
+                    isReturnable: product.isReturnable,
+                    isReplaceable: product.isReplaceable,
+                    returnDays: product.returnDays
+                });
+            }
 
             let orderIsPaid = false;
             let orderTotalPaid = 0;
@@ -64,24 +101,31 @@ const addOrderItems = async (req, res) => {
             
             let walletAmountApplied = Number(req.body.walletAmount) || 0;
             let walletUsed = false;
+            let walletDoc = null;
 
-            // Check if they want to pay with Wallet ONLY (legacy flow) or partial wallet
             if (paymentMethod === 'Wallet' && walletAmountApplied === 0) {
                 walletAmountApplied = totalPrice;
             }
 
             if (walletAmountApplied > 0) {
-                const wallet = await Wallet.findOne({ user: req.user._id });
-                if (!wallet || wallet.balance < walletAmountApplied) {
+                // 3. Atomic Wallet Update to prevent race conditions
+                const initialWallet = await Wallet.findOne({ user: req.user._id });
+                if (!initialWallet) {
+                    return res.status(400).json({ message: 'Wallet not found.' });
+                }
+                balanceBefore = initialWallet.balance;
+                
+                walletDoc = await Wallet.findOneAndUpdate(
+                    { user: req.user._id, balance: { $gte: walletAmountApplied } },
+                    { $inc: { balance: -walletAmountApplied, totalDebited: walletAmountApplied } },
+                    { new: true }
+                );
+                
+                if (!walletDoc) {
                     return res.status(400).json({ message: 'Insufficient wallet balance to apply this amount.' });
                 }
                 
-                balanceBefore = wallet.balance;
-                wallet.balance -= walletAmountApplied;
-                wallet.totalDebited += walletAmountApplied;
-                await wallet.save();
-                balanceAfter = wallet.balance;
-                
+                balanceAfter = walletDoc.balance;
                 walletUsed = true;
                 orderTotalPaid += walletAmountApplied;
                 
@@ -366,6 +410,7 @@ const updateOrderStatus = async (req, res) => {
         const { status } = req.body;
 
         if (order) {
+            const oldStatus = order.status;
             order.status = status;
 
             // Handle side effects of specific statuses
@@ -380,8 +425,25 @@ const updateOrderStatus = async (req, res) => {
                 order.deliveredAt = undefined;
             }
 
-            // In real app, changing status might also trigger emails (e.g. Shipped)
-            
+            // Restore Stock if Admin Cancels
+            if (status === 'Cancelled' && oldStatus !== 'Cancelled') {
+                const Product = require('../models/Product');
+                for (const item of order.orderItems) {
+                    const product = await Product.findById(item.product);
+                    if (product) {
+                        if (product.hasVariants && product.variants) {
+                            const variantIndex = product.variants.findIndex(v => Number(v.price) === Number(item.price));
+                            if (variantIndex !== -1) {
+                                product.variants[variantIndex].countInStock += item.qty;
+                            }
+                        } else {
+                            product.countInStock += item.qty;
+                        }
+                        await product.save();
+                    }
+                }
+            }
+
             const updatedOrder = await order.save();
             res.json(updatedOrder);
         } else {
@@ -472,6 +534,22 @@ const cancelOrder = async (req, res) => {
             }
         }
 
+        // Restore Stock on Cancellation
+        const Product = require('../models/Product');
+        for (const item of order.orderItems) {
+            const product = await Product.findById(item.product);
+            if (product) {
+                if (product.hasVariants && product.variants) {
+                    const variantIndex = product.variants.findIndex(v => Number(v.price) === Number(item.price));
+                    if (variantIndex !== -1) {
+                        product.variants[variantIndex].countInStock += item.qty;
+                    }
+                } else {
+                    product.countInStock += item.qty;
+                }
+                await product.save();
+            }
+        }
         
         const updatedOrder = await order.save();
         const orderIdStr = updatedOrder.orderNumber || updatedOrder._id.toString().substring(0, 8).toUpperCase();
