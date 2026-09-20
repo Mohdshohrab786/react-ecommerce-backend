@@ -212,97 +212,26 @@ const updateReturnStatus = async (req, res) => {
         if (!returnReq) return res.status(404).json({ message: 'Return not found' });
         
         const { status } = req.body;
-        
+        const isReplacement = returnReq.reason && returnReq.reason.includes('[REPLACEMENT]');
         
         if (status === 'APPROVED') {
             returnReq.approvedAt = Date.now();
-            
-            // Check if it's a Replacement
-            const isReplacement = returnReq.reason && returnReq.reason.includes('[REPLACEMENT]');
-            
-            // Refund to wallet immediately if it's a Return and not already refunded
-            if (!isReplacement && returnReq.status !== 'REFUNDED') {
-                const existingRefund = await Refund.findOne({ returnRequest: returnReq._id, status: 'COMPLETED' });
-                if (!existingRefund) {
-                    const refundRef = `REFUND-RET-${returnReq._id}-${Date.now()}`;
-                    const refund = new Refund({
-                        user: returnReq.user,
-                        order: returnReq.order,
-                        returnRequest: returnReq._id,
-                        amount: returnReq.refundAmount,
-                        type: 'RETURN',
-                        status: 'COMPLETED',
-                        referenceId: refundRef,
-                        reason: 'Return approved and auto-refunded to wallet',
-                        processedBy: req.user._id,
-                        processedAt: Date.now()
-                    });
-                    
-                    let wallet = await Wallet.findOne({ user: returnReq.user });
-                    if (!wallet) {
-                        wallet = new Wallet({ user: returnReq.user, balance: 0, totalCredited: 0, totalDebited: 0 });
-                    }
-                    const balBefore = wallet.balance;
-                    wallet.balance += returnReq.refundAmount;
-                    wallet.totalCredited += returnReq.refundAmount;
-                    await wallet.save();
-                    
-                    await Transaction.create({
-                        wallet: wallet._id,
-                        user: returnReq.user,
-                        order: returnReq.order,
-                        returnRequest: returnReq._id,
-                        refund: refund._id,
-                        type: 'REFUND',
-                        amount: returnReq.refundAmount,
-                        direction: 'CREDIT',
-                        balanceBefore: balBefore,
-                        balanceAfter: wallet.balance,
-                        referenceId: `WLT-${refundRef}`,
-                        description: `Auto-refund for approved return`,
-                        status: 'COMPLETED'
-                    });
-                    
-                    refund.paymentId = `WLT-${refundRef}`;
-                    await refund.save();
-                    
-                    returnReq.completedAt = Date.now();
-                    returnReq.status = 'REFUNDED';
-                    await returnReq.save();
-                    
-                    const ord = await Order.findById(returnReq.order).populate('user', 'name email');
-                    if (ord) {
-                        ord.status = 'Refunded';
-                        await ord.save();
-
-                        // Notify User via SMS & Email
-                        const phone = ord.shippingAddress?.phone;
-                        const message = `Hi ${ord.user.name}, your return for order #${ord.orderNumber} is approved. Rs.${returnReq.refundAmount} has been refunded to your wallet.`;
-                        if (phone) {
-                            sendSMS({ phone, message }).catch(e => console.error("SMS Error:", e));
-                        }
-                        if (ord.user.email) {
-                            sendEmail({
-                                email: ord.user.email,
-                                subject: 'Refund Processed to Wallet',
-                                message
-                            }).catch(e => console.error("Email Error:", e));
-                        }
-                    }
-                    
-                    return res.json(returnReq); // Exit early since we changed status to REFUNDED
-                }
-            }
         }
         
-        if (status === 'REJECTED') returnReq.rejectedAt = Date.now();
+        if (status === 'REJECTED') {
+            returnReq.rejectedAt = Date.now();
+        }
 
-        
-        // If it's being refunded
+        let shouldRefund = false;
         if (status === 'REFUNDED' && returnReq.status !== 'REFUNDED') {
+            shouldRefund = true;
+        } else if (status === 'RECEIVED' && returnReq.status !== 'RECEIVED' && !isReplacement) {
+            shouldRefund = true;
+        }
+
+        if (shouldRefund) {
             const existingRefund = await Refund.findOne({ returnRequest: returnReq._id, status: 'COMPLETED' });
             if (!existingRefund) {
-                // Create refund record
                 const refundRef = `REFUND-RET-${returnReq._id}-${Date.now()}`;
                 const refund = new Refund({
                     user: returnReq.user,
@@ -312,12 +241,11 @@ const updateReturnStatus = async (req, res) => {
                     type: 'RETURN',
                     status: 'COMPLETED',
                     referenceId: refundRef,
-                    reason: 'Return approved and refunded',
+                    reason: status === 'RECEIVED' ? 'Return received and auto-refunded' : 'Return approved and refunded',
                     processedBy: req.user._id,
                     processedAt: Date.now()
                 });
                 
-                // Credit wallet
                 let wallet = await Wallet.findOne({ user: returnReq.user });
                 if (!wallet) {
                     wallet = new Wallet({ user: returnReq.user, balance: 0, totalCredited: 0, totalDebited: 0 });
@@ -338,31 +266,32 @@ const updateReturnStatus = async (req, res) => {
                     direction: 'CREDIT',
                     balanceBefore: balBefore,
                     balanceAfter: wallet.balance,
-                    referenceId: `WLT-\${refundRef}`,
+                    referenceId: `WLT-${refundRef}`,
                     description: `Refund for return request on order`,
                     status: 'COMPLETED'
                 });
                 
-                refund.paymentId = `WLT-\${refundRef}`;
+                refund.paymentId = `WLT-${refundRef}`;
                 await refund.save();
             }
             returnReq.completedAt = Date.now();
+            returnReq.status = 'REFUNDED'; // Always override to REFUNDED if money is sent
+        } else {
+            returnReq.status = status;
         }
         
-        returnReq.status = status;
         await returnReq.save();
         
         const ord = await Order.findById(returnReq.order).populate('user', 'name email');
         if (ord) {
-            const isReplacement = returnReq.reason && returnReq.reason.includes('[REPLACEMENT]');
             if (status === 'REJECTED') {
                 ord.status = 'Delivered'; // Revert back to delivered since it was rejected
-            } else if (status === 'REFUNDED') {
+            } else if (shouldRefund) {
                 ord.status = 'Refunded';
                 
                 // Notify User via SMS & Email
                 const phone = ord.shippingAddress?.phone;
-                const message = `Hi ${ord.user.name}, your refund of Rs.${returnReq.refundAmount} for order #${ord.orderNumber} has been processed to your wallet.`;
+                const message = `Hi ${ord.user.name}, your return for order #${ord.orderNumber} is processed. Rs.${returnReq.refundAmount} has been refunded to your wallet.`;
                 if (phone) {
                     sendSMS({ phone, message }).catch(e => console.error("SMS Error:", e));
                 }
